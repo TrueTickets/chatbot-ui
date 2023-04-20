@@ -57,7 +57,7 @@ steps:
     stage: security-scan
     image: aquasec/trivy
     commands:
-      - trivy --config ../../trivy.yaml image --output
+      - trivy --config trivy.yaml image --output
         ${{SECURITY_SCAN_REPORTS_DIR}}/${{SECURITY_SCAN_REPORT_FILE}}
         ${{TT_GAR_IMAGES_REPO}}/${{SECURITY_SCAN_IMAGE_NAME}}:${{CF_BUILD_ID}}
     environment:
@@ -104,3 +104,10 @@ steps:
         any:
           tests_failed: run_tests.result == 'failure'
           security_scan_failed: run_security_scan.result == 'failure'
+  tag_image:
+    title: Tag tested docker image
+    type: push
+    stage: deploy
+    candidate: ${{build_jerakia_image}}
+    tags:
+      - latest
