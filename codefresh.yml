@@ -1,0 +1,106 @@
+---
+version: "1.0"
+build_version: "v2"
+stages:
+  - pre-build
+  - build
+  - test
+  - security-scan
+  - deploy
+steps:
+  main_clone:
+    title: Clone main repository
+    stage: pre-build
+    type: git-clone
+    git: github
+    repo: TrueTickets/chatbot-ui
+    revision: ${{CF_BRANCH}}
+  get_access_token_and_image_version:
+    title: Get Google access token
+    stage: pre-build
+    image: google/cloud-sdk:slim
+    commands:
+      - echo $GOOGLE_KEY_CONTENT | base64 --decode >
+        ${{CF_VOLUME_PATH}}/key_file.json
+  build_chatbott_ui_image:
+    title: Build Chatbot UI docker image
+    stage: build
+    type: build
+    image_name: chatbot-ui
+    tag: ${{CF_BUILD_ID}}
+  run_tests:
+    title: Run tests
+    stage: test
+    image: node:16
+    commands:
+      - npm ci
+      - npm test
+    working_directory: ${{main_clone}}
+  prepare_security_scan:
+    title: Prepare environment
+    stage: security-scan
+    image: alpine
+    commands:
+      # Clean up
+      - rm -Rf $SECURITY_SCAN_REPORTS_DIR
+      - mkdir -p $SECURITY_SCAN_REPORTS_DIR
+      # Export environment variables
+      - cf_export SECURITY_SCAN_IMAGE_NAME SECURITY_SCAN_IMAGE_ENABLED
+        SECURITY_SCAN_REPORTS_DIR
+        SECURITY_SCAN_REPORT_FILE=security-scan-$SECURITY_SCAN_IMAGE_NAME.html
+    environment:
+      - SECURITY_SCAN_IMAGE_NAME=chatbot-ui
+      - SECURITY_SCAN_IMAGE_ENABLED=${{CONSOLIDATOR_SECURITY_SCAN_ENABLED}}
+      - SECURITY_SCAN_REPORTS_DIR=${{CF_VOLUME_PATH}}/reports/security_scan
+  run_security_scan:
+    title: Scan image
+    stage: security-scan
+    image: aquasec/trivy
+    commands:
+      - trivy --config ../../trivy.yaml image --output
+        ${{SECURITY_SCAN_REPORTS_DIR}}/${{SECURITY_SCAN_REPORT_FILE}}
+        ${{TT_GAR_IMAGES_REPO}}/${{SECURITY_SCAN_IMAGE_NAME}}:${{CF_BUILD_ID}}
+    environment:
+      - GOOGLE_APPLICATION_CREDENTIALS=${{CF_VOLUME_PATH}}/key_file.json
+    working_directory: ${{main_clone}}
+    condition:
+      all:
+        repository_security_scan_is_enabled:
+          "'${{SECURITY_SCAN_ENABLED}}' != 'false'"
+        image_security_scan_is_enabled:
+          "'${{SECURITY_SCAN_IMAGE_ENABLED}}' != 'false'"
+    fail_fast: false
+  upload_security_scan:
+    title: Upload report
+    stage: security-scan
+    image: codefresh/cf-docker-test-reporting
+    environment:
+      - REPORT_DIR.0=${{SECURITY_SCAN_REPORTS_DIR}}
+      - REPORT_INDEX_FILE.0=${{SECURITY_SCAN_REPORT_FILE}}
+      - REPORT_TYPE.0=Security
+      - BUCKET_NAME=truetickets-codefresh
+      - CF_STORAGE_INTEGRATION=google
+    when:
+      condition:
+        all:
+          repository_security_scan_is_enabled:
+            "'${{SECURITY_SCAN_ENABLED}}' != 'false'"
+          image_security_scan_is_enabled:
+            "'${{SECURITY_SCAN_IMAGE_ENABLED}}' != 'false'"
+  abort_deploy_if_tests_failed:
+    title: Abort if tests failed
+    stage: deploy
+    image: alpine:latest
+    commands:
+      - echo "Image testing failed"
+      - exit 1
+    on_finish:
+      metadata:
+        set:
+          - ${{build_chatbot_ui_image.imageId}}:
+              - TT_QA_CHECK: "fail"
+    when:
+      condition:
+        any:
+          tests_failed: run_tests.result == 'failure'
+          security_scan_failed: run_security_scan.result == 'failure'
