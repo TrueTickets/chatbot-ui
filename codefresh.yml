@@ -22,7 +22,7 @@ steps:
     commands:
       - echo $GOOGLE_KEY_CONTENT | base64 --decode >
         ${{CF_VOLUME_PATH}}/key_file.json
-  build_chatbott_ui_image:
+  build_chatbot_ui_image:
     title: Build Chatbot UI docker image
     stage: build
     type: build
