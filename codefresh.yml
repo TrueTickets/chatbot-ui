@@ -108,6 +108,6 @@ steps:
     title: Tag tested docker image
     type: push
     stage: deploy
-    candidate: ${{build_jerakia_image}}
+    candidate: ${{build_chatbot_ui_image}}
     tags:
       - latest
