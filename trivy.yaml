@@ -1,0 +1,9 @@
+---
+cache:
+    backend: fs
+    dir: /codefresh/volume/cache/trivy
+exit-code: 1
+format: template
+severity: HIGH,CRITICAL
+template: "@/contrib/html.tpl"
+timeout: 5m0s
